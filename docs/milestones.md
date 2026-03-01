@@ -20,6 +20,12 @@
 - DoD:
   - 1つ以上の実タスクが OpenClaw 経由で成功（例: リマインダー追加、メッセージ送信、など）
 
+**現状 (2026-03-01):**
+- Node relay + Discord webhook で投稿はできる
+- 人間の投稿には Chappy が返信する
+- ❌ **webhook(bot)投稿には Chappy が反応しない** ← ブロッカー
+- 詳細: `docs/status-2026-03-01.md`
+
 ## Milestone 2: Mac単体・STT（押しボタン/手動トリガ）
 
 目的: 音声入力（STT）の品質/遅延/コスト感を掴む。
@@ -29,6 +35,11 @@
 - LLM/実行: Milestone 1 と同じ
 - DoD:
   - 音声→テキスト→OpenClaw実行が一連で動く
+
+**現状 (2026-03-01):**
+- ✅ Web Speech API (Chrome) で STT 動作確認済み
+- ✅ HTTPS (Tailscale Serve) でマイクアクセス可能
+- Milestone 1 のブロッカー解消待ち
 
 ## Milestone 3: Mac単体・wakeword常時待受（ローカル）
 

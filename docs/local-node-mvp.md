@@ -34,7 +34,8 @@ npm run dev
 
 4. ブラウザで開く
 
-- http://localhost:8788/ （デフォルト）
+- 同じPCで開く: http://localhost:8788/
+- 別端末（スマホ等）で開く: `.env` で `HOST=0.0.0.0` にして、http://<PCのLAN IP>:8788/ を開く
 
 ## 使い方
 

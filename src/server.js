@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
-const PORT = process.env.PORT ? Number(process.env.PORT) : 8787;
+const HOST = process.env.HOST || '127.0.0.1';
+const PORT = process.env.PORT ? Number(process.env.PORT) : 8788;
 const DISCORD_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 
@@ -114,6 +115,6 @@ app.get('/api/wait-reply', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`[voiceclaw] listening on http://localhost:${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`[voiceclaw] listening on http://${HOST}:${PORT}`);
 });

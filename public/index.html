@@ -82,10 +82,15 @@
       const u = new SpeechSynthesisUtterance(clean);
       u.lang = 'ja-JP';
       u.rate = 1.05;
-      u.onend = resolve;
-      u.onerror = resolve;
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(); } };
+      u.onend = finish;
+      u.onerror = finish;
       synth.cancel();
       synth.speak(u);
+      // Fallback: resolve after estimated duration (100ms/char) + 3s buffer
+      const estimatedMs = Math.max(3000, clean.length * 100 + 3000);
+      setTimeout(finish, estimatedMs);
     });
   }
 

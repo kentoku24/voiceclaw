@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -43,7 +45,10 @@ async function discordGetLatest(channelId, limit = 10) {
 }
 
 // Serve web UI
-app.use('/', express.static(new URL('../public', import.meta.url).pathname));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const publicDir = path.join(__dirname, '..', 'public');
+app.use('/', express.static(publicDir));
 
 app.get('/health', (req, res) => {
   res.json({ ok: true });

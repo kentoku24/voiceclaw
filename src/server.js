@@ -74,16 +74,13 @@ app.post('/api/send', async (req, res) => {
     const prefix = req.body?.prefix ? String(req.body.prefix) : '';
     const sent = await discordSend(channelId, prefix + text);
 
-    // Return sender id so the client can wait for a reply from someone else
-    const sentAuthorId = sent?.author?.id;
-
-    res.json({ ok: true, sentId: sent.id, sentAuthorId });
+    res.json({ ok: true, sentId: sent.id });
   } catch (e) {
     res.status(500).json({ ok: false, error: e?.message || String(e) });
   }
 });
 
-// GET /api/wait-reply?afterId=...&timeoutMs=45000&excludeAuthorId=...
+// GET /api/wait-reply?afterId=...&timeoutMs=45000&skipPrefix=...
 app.get('/api/wait-reply', async (req, res) => {
   try {
     const channelId = req.query.channelId || DISCORD_CHANNEL_ID;
@@ -92,13 +89,13 @@ app.get('/api/wait-reply', async (req, res) => {
     const afterId = String(req.query.afterId || '').trim();
     if (!afterId) return res.status(400).json({ ok: false, error: 'afterId required' });
 
-    const excludeAuthorId = String(req.query.excludeAuthorId || '').trim();
+    const skipPrefix = String(req.query.skipPrefix || '').trim();
 
     const timeoutMs = req.query.timeoutMs ? Number(req.query.timeoutMs) : 45000;
     const start = Date.now();
 
     while (Date.now() - start < timeoutMs) {
-      const msgs = await discordGetLatest(channelId, 10);
+      const msgs = await discordGetLatest(channelId, 20);
       const newer = msgs.filter((m) => {
         try {
           return BigInt(m.id) > BigInt(afterId);
@@ -108,8 +105,9 @@ app.get('/api/wait-reply', async (req, res) => {
       });
 
       const candidate = newer.find((m) => {
-        if (!m?.content) return false;
-        if (excludeAuthorId && m?.author?.id === excludeAuthorId) return false;
+        const c = m?.content;
+        if (!c) return false;
+        if (skipPrefix && c.startsWith(skipPrefix)) return false;
         return true;
       });
 

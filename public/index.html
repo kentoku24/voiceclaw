@@ -31,20 +31,21 @@
 
   function setStatus(s){ statusEl.textContent = 'status: ' + s; }
 
+  const SENT_PREFIX = 'voiceclaw: ';
+
   async function apiSend(text) {
     const res = await fetch('/api/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, prefix: 'voiceclaw: ' })
+      body: JSON.stringify({ text, prefix: SENT_PREFIX })
     });
     const data = await res.json().catch(()=>null);
     if (!res.ok || !data?.ok) throw new Error(data?.error || `send failed: ${res.status}`);
-    return { sentId: data.sentId, sentAuthorId: data.sentAuthorId };
+    return { sentId: data.sentId };
   }
 
-  async function apiWaitReply(afterId, excludeAuthorId) {
-    const qs = new URLSearchParams({ afterId });
-    if (excludeAuthorId) qs.set('excludeAuthorId', excludeAuthorId);
+  async function apiWaitReply(afterId) {
+    const qs = new URLSearchParams({ afterId, skipPrefix: SENT_PREFIX });
     const res = await fetch(`/api/wait-reply?${qs.toString()}`);
     const data = await res.json().catch(()=>null);
     if (!res.ok || !data?.ok) throw new Error(data?.error || `wait failed: ${res.status}`);
@@ -101,9 +102,9 @@
 
       try {
         setStatus('sending...');
-        const { sentId, sentAuthorId } = await apiSend(text);
+        const { sentId } = await apiSend(text);
         setStatus('waiting reply...');
-        const reply = await apiWaitReply(sentId, sentAuthorId);
+        const reply = await apiWaitReply(sentId);
         setStatus('reply: ' + reply.content);
         await speak(reply.content);
         setStatus('idle');

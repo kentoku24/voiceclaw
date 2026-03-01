@@ -12,6 +12,7 @@ const DISCORD_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const CHAPPY_MENTION = process.env.CHAPPY_MENTION; // e.g. <@1467185317433049244>
+const CHAPPY_AUTHOR_ID = process.env.CHAPPY_AUTHOR_ID; // e.g. 1467185317433049244
 
 function requireEnv(name, val) {
   if (!val) throw new Error(`Missing env: ${name}`);
@@ -120,7 +121,7 @@ app.get('/api/wait-reply', async (req, res) => {
     const start = Date.now();
 
     while (Date.now() - start < timeoutMs) {
-      const msgs = await discordGetLatest(channelId, 20);
+      const msgs = await discordGetLatest(channelId, 30);
       const newer = msgs.filter((m) => {
         try {
           return BigInt(m.id) > BigInt(afterId);
@@ -132,7 +133,12 @@ app.get('/api/wait-reply', async (req, res) => {
       const candidate = newer.find((m) => {
         if (!m?.content) return false;
         if (excludeAuthorId && m?.author?.id === excludeAuthorId) return false;
-        return true;
+
+        // Prefer replies from Chappy only (prevents picking up other human messages)
+        if (CHAPPY_AUTHOR_ID) return m?.author?.id === CHAPPY_AUTHOR_ID;
+
+        // Fallback: only accept bot-authored messages (still better than humans)
+        return m?.author?.bot === true;
       });
 
       if (candidate) {

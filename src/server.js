@@ -11,6 +11,7 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 8788;
 const DISCORD_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
+const CHAPPY_MENTION = process.env.CHAPPY_MENTION; // e.g. <@1467185317433049244>
 
 function requireEnv(name, val) {
   if (!val) throw new Error(`Missing env: ${name}`);
@@ -94,7 +95,8 @@ app.post('/api/send', async (req, res) => {
     if (!text) return res.status(400).json({ ok: false, error: 'text required' });
 
     const prefix = req.body?.prefix ? String(req.body.prefix) : '';
-    const sent = await discordSend(channelId, prefix + text);
+    const mention = CHAPPY_MENTION ? (CHAPPY_MENTION.trim() + ' ') : '';
+    const sent = await discordSend(channelId, mention + prefix + text);
 
     const sentAuthorId = sent?.author?.id;
     res.json({ ok: true, sentId: sent.id, sentAuthorId, via: DISCORD_WEBHOOK_URL ? 'webhook' : 'bot' });

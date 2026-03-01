@@ -41,7 +41,7 @@
   <h1>🦞 voiceclaw</h1>
   <div class="phase-label" id="phase-label">停止中</div><br>
   <button id="btn">開始</button>
-  <div id="status">「アリスちゃん」と呼びかけてください</div>
+  <div id="status">「アリス」と呼びかけてください</div>
   <div id="reply-box"></div>
 
 <script>
@@ -52,7 +52,14 @@
   const phaseLabel = document.getElementById('phase-label');
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const synth = window.speechSynthesis;
+
+  // Web Audio API context — must be created/resumed after user gesture
+  let audioCtx = null;
+  function getAudioCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
 
   if (!SpeechRecognition) {
     statusEl.textContent = 'SpeechRecognitionが使えません。Chromeで開いてください。';
@@ -60,10 +67,12 @@
     return;
   }
 
-  const WAKE_WORDS = ['ありすちゃん', 'アリスちゃん', 'アリスチャン', 'ありすチャン'];
+  const WAKE_WORDS = ['アリスちゃん', 'ありすちゃん', 'アリスチャン', 'アリス', 'ありす'];
 
   function findWakeWord(text) {
-    for (const w of WAKE_WORDS) {
+    // longest match first to avoid partial match (e.g. "アリス" inside "アリスちゃん")
+    const sorted = [...WAKE_WORDS].sort((a,b) => b.length - a.length);
+    for (const w of sorted) {
       const idx = text.indexOf(w);
       if (idx !== -1) return { idx, len: w.length };
     }
@@ -133,15 +142,19 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: clean }),
         });
-        if (!res.ok) throw new Error('tts failed');
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-        audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
-        audio.play();
+        if (!res.ok) throw new Error('tts HTTP ' + res.status);
+        const arrayBuf = await res.arrayBuffer();
+
+        // Use Web Audio API to avoid autoplay restrictions
+        const ctx = getAudioCtx();
+        const audioBuf = await ctx.decodeAudioData(arrayBuf);
+        const source = ctx.createBufferSource();
+        source.buffer = audioBuf;
+        source.connect(ctx.destination);
+        source.onended = resolve;
+        source.start(0);
       } catch (e) {
-        console.warn('VOICEVOX TTS error, skipping:', e);
+        console.warn('[tts] error:', e);
         resolve();
       }
     });
@@ -163,7 +176,7 @@
       awaitingCommand = false;
       if (phase !== 'idle') {
         setPhase('watching');
-        setStatus('「アリスちゃん」と呼びかけてください');
+        setStatus('「アリス」と呼びかけてください');
       }
     }
   }
@@ -250,7 +263,7 @@
       recognition.start();
       setPhase('watching');
       awaitingCommand = false;
-      setStatus('「アリスちゃん」と呼びかけてください');
+      setStatus('「アリス」と呼びかけてください');
     } catch (e) {
       setStatus('開始失敗: ' + e);
       recognition = null;
@@ -268,6 +281,7 @@
   }
 
   btn.addEventListener('click', () => {
+    getAudioCtx(); // unlock audio on first user gesture
     if (phase === 'idle') startWatching();
     else stopWatching();
   });

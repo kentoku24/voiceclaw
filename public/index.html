@@ -39,11 +39,13 @@
     });
     const data = await res.json().catch(()=>null);
     if (!res.ok || !data?.ok) throw new Error(data?.error || `send failed: ${res.status}`);
-    return data.sentId;
+    return { sentId: data.sentId, sentAuthorId: data.sentAuthorId };
   }
 
-  async function apiWaitReply(afterId) {
-    const res = await fetch(`/api/wait-reply?afterId=${encodeURIComponent(afterId)}`);
+  async function apiWaitReply(afterId, excludeAuthorId) {
+    const qs = new URLSearchParams({ afterId });
+    if (excludeAuthorId) qs.set('excludeAuthorId', excludeAuthorId);
+    const res = await fetch(`/api/wait-reply?${qs.toString()}`);
     const data = await res.json().catch(()=>null);
     if (!res.ok || !data?.ok) throw new Error(data?.error || `wait failed: ${res.status}`);
     return data.message;
@@ -99,9 +101,9 @@
 
       try {
         setStatus('sending...');
-        const sentId = await apiSend(text);
+        const { sentId, sentAuthorId } = await apiSend(text);
         setStatus('waiting reply...');
-        const reply = await apiWaitReply(sentId);
+        const reply = await apiWaitReply(sentId, sentAuthorId);
         setStatus('reply: ' + reply.content);
         await speak(reply.content);
         setStatus('idle');

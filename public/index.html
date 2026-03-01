@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>voiceclaw MVP</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 24px; }
+    button { font-size: 18px; padding: 14px 18px; }
+    #status { margin-top: 16px; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <h1>voiceclaw MVP</h1>
+  <button id="ptt">押して話す（離すと送信）</button>
+  <div id="status">status: idle</div>
+
+<script>
+(function(){
+  const statusEl = document.getElementById('status');
+  const btn = document.getElementById('ptt');
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const synth = window.speechSynthesis;
+
+  if (!SpeechRecognition) {
+    statusEl.textContent = 'status: Web Speech API (SpeechRecognition) が使えません。Chromeで開いてください。';
+    btn.disabled = true;
+    return;
+  }
+
+  function setStatus(s){ statusEl.textContent = 'status: ' + s; }
+
+  async function apiSend(text) {
+    const res = await fetch('/api/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, prefix: 'voiceclaw: ' })
+    });
+    const data = await res.json().catch(()=>null);
+    if (!res.ok || !data?.ok) throw new Error(data?.error || `send failed: ${res.status}`);
+    return data.sentId;
+  }
+
+  async function apiWaitReply(afterId) {
+    const res = await fetch(`/api/wait-reply?afterId=${encodeURIComponent(afterId)}`);
+    const data = await res.json().catch(()=>null);
+    if (!res.ok || !data?.ok) throw new Error(data?.error || `wait failed: ${res.status}`);
+    return data.message;
+  }
+
+  function speak(text) {
+    return new Promise((resolve) => {
+      if (!text) return resolve();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'ja-JP';
+      u.rate = 1.05;
+      u.onend = resolve;
+      u.onerror = resolve;
+      synth.cancel();
+      synth.speak(u);
+    });
+  }
+
+  let recognition;
+  let transcript = '';
+  let isRecording = false;
+
+  function startRec(){
+    transcript = '';
+    recognition = new SpeechRecognition();
+    recognition.lang = 'ja-JP';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    recognition.onresult = (event) => {
+      let t = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        t += event.results[i][0].transcript;
+      }
+      transcript = t.trim();
+      setStatus('listening... ' + transcript);
+    };
+
+    recognition.onerror = (e) => {
+      setStatus('recognition error: ' + (e.error || 'unknown'));
+      isRecording = false;
+    };
+
+    recognition.onend = async () => {
+      if (!isRecording) return;
+      isRecording = false;
+
+      const text = transcript.trim();
+      if (!text) {
+        setStatus('no speech detected');
+        return;
+      }
+
+      try {
+        setStatus('sending...');
+        const sentId = await apiSend(text);
+        setStatus('waiting reply...');
+        const reply = await apiWaitReply(sentId);
+        setStatus('reply: ' + reply.content);
+        await speak(reply.content);
+        setStatus('idle');
+      } catch (err) {
+        setStatus(String(err && err.message ? err.message : err));
+      }
+    };
+
+    try {
+      isRecording = true;
+      setStatus('listening...');
+      recognition.start();
+    } catch (e) {
+      isRecording = false;
+      setStatus('failed to start recognition: ' + e);
+    }
+  }
+
+  function stopRec(){
+    if (!recognition) return;
+    try { recognition.stop(); } catch {}
+  }
+
+  btn.addEventListener('mousedown', (e) => { e.preventDefault(); startRec(); });
+  btn.addEventListener('mouseup', (e) => { e.preventDefault(); stopRec(); });
+  btn.addEventListener('touchstart', (e) => { e.preventDefault(); startRec(); }, {passive:false});
+  btn.addEventListener('touchend', (e) => { e.preventDefault(); stopRec(); }, {passive:false});
+})();
+</script>
+</body>
+</html>

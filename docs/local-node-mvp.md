@@ -1,0 +1,46 @@
+# ローカルNodeでの最短MVP（トークンをブラウザに置かない）
+
+- 更新日: 2026-03-01
+
+## 概要
+
+- ブラウザ: 開始/終了（押して話す）だけ
+  - STT: Web Speech API
+  - TTS: SpeechSynthesis
+- ローカルNode: Discord Bot token を保持して Discord API を叩く（送信/返信待ち）
+
+## セットアップ
+
+1. 依存インストール
+
+```bash
+npm i
+```
+
+2. `.env` を作成
+
+```bash
+cp .env.example .env
+# .env を編集して DISCORD_BOT_TOKEN を設定
+```
+
+3. 起動
+
+```bash
+npm run dev
+```
+
+4. ブラウザで開く
+
+- http://localhost:8787/
+
+## 使い方
+
+- ボタンを押して話す → 離す
+- 文字起こしテキストが `#voiceclaw` に送信される
+- Chappyの返信を取得したら自動で読み上げる
+
+## 注意
+
+- このMVPは「最短」なので、返信の判定は単純（送信メッセージIDより新しい最初のメッセージ）。
+  - 実運用ではスレッド化/メッセージのメタ情報付与などで堅牢化する。

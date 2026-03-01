@@ -97,7 +97,8 @@ app.post('/api/send', async (req, res) => {
     const text = String(req.body?.text || '').trim();
     if (!text) return res.status(400).json({ ok: false, error: 'text required' });
 
-    const prefix = req.body?.prefix ? String(req.body.prefix) : '';
+    // Default to the canonical prefix so Chappy can route/trigger reliably
+    const prefix = req.body?.prefix ? String(req.body.prefix) : 'voiceclaw: ';
     const mention = CHAPPY_MENTION ? (CHAPPY_MENTION.trim() + ' ') : '';
     const sent = await discordSend(channelId, mention + prefix + text);
 

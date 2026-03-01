@@ -215,6 +215,11 @@ app.post('/api/chat', async (req, res) => {
       return res.status(500).json({ ok: false, error: 'OPENCLAW_GATEWAY_TOKEN not set' });
     }
 
+    // Accept either { text } for single turn, or { messages } for full history
+    const messages = req.body?.messages
+      ? req.body.messages
+      : [{ role: 'user', content: text }];
+
     const response = await fetch(`${OPENCLAW_GATEWAY_URL}/v1/chat/completions`, {
       method: 'POST',
       headers: {
@@ -223,8 +228,8 @@ app.post('/api/chat', async (req, res) => {
       },
       body: JSON.stringify({
         model: 'openclaw:main',
-        user: 'voiceclaw',  // stable session key (persistent across requests)
-        messages: [{ role: 'user', content: text }],
+        user: 'voiceclaw',  // stable session key
+        messages,
       }),
     });
 

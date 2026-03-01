@@ -7,7 +7,9 @@
 - ブラウザ: 開始/終了（押して話す）だけ
   - STT: Web Speech API
   - TTS: SpeechSynthesis
-- ローカルNode: Discord Bot token を保持して Discord API を叩く（送信/返信待ち）
+- ローカルNode:
+  - **送信**: Discord Webhook（推奨。bot投稿を避けてChappyが反応しやすい）
+  - **受信**: Discord Bot token でチャンネル履歴を取得（返信待ち）
 
 ## セットアップ
 

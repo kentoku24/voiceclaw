@@ -10,6 +10,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8788;
 const DISCORD_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 
 function requireEnv(name, val) {
   if (!val) throw new Error(`Missing env: ${name}`);
@@ -17,6 +18,27 @@ function requireEnv(name, val) {
 }
 
 async function discordSend(channelId, content) {
+  // Prefer webhook for sending, so messages are not authored by a bot account.
+  if (DISCORD_WEBHOOK_URL) {
+    const res = await fetch(DISCORD_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Discord webhook send failed: ${res.status} ${res.statusText} ${text}`);
+    }
+
+    // Webhook execute doesn't return message JSON unless ?wait=true
+    // We need a sentId to anchor reply waiting, so we fetch latest and take the newest.
+    const msgs = await discordGetLatest(channelId, 1);
+    const newest = msgs?.[0];
+    if (!newest?.id) throw new Error('Discord webhook send: could not fetch newest message id');
+    return newest;
+  }
+
+  // Fallback: bot token send (not recommended; may be ignored by other bots)
   const token = requireEnv('DISCORD_BOT_TOKEN', DISCORD_TOKEN);
   const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
     method: 'POST',
@@ -75,7 +97,7 @@ app.post('/api/send', async (req, res) => {
     const sent = await discordSend(channelId, prefix + text);
 
     const sentAuthorId = sent?.author?.id;
-    res.json({ ok: true, sentId: sent.id, sentAuthorId });
+    res.json({ ok: true, sentId: sent.id, sentAuthorId, via: DISCORD_WEBHOOK_URL ? 'webhook' : 'bot' });
   } catch (e) {
     res.status(500).json({ ok: false, error: e?.message || String(e) });
   }

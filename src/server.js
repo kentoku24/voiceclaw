@@ -48,7 +48,14 @@ async function discordGetLatest(channelId, limit = 10) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicDir = path.join(__dirname, '..', 'public');
-app.use('/', express.static(publicDir));
+
+// Serve index explicitly (avoids environment-specific static quirks)
+app.get('/', (req, res) => {
+  res.sendFile(path.join(publicDir, 'index.html'));
+});
+
+// Static assets (if we add any later)
+app.use(express.static(publicDir));
 
 app.get('/health', (req, res) => {
   res.json({ ok: true });

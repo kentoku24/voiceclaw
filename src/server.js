@@ -15,6 +15,8 @@ const CHAPPY_MENTION = process.env.CHAPPY_MENTION; // e.g. <@1467185317433049244
 const CHAPPY_AUTHOR_ID = process.env.CHAPPY_AUTHOR_ID; // e.g. 1467185317433049244
 const OPENCLAW_GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL || 'http://127.0.0.1:18789';
 const OPENCLAW_GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN;
+const VOICEVOX_URL = process.env.VOICEVOX_URL || 'http://127.0.0.1:50021';
+const VOICEVOX_SPEAKER = process.env.VOICEVOX_SPEAKER ? Number(process.env.VOICEVOX_SPEAKER) : 1; // 1=ずんだもん(あまあま)
 
 function requireEnv(name, val) {
   if (!val) throw new Error(`Missing env: ${name}`);
@@ -163,6 +165,41 @@ app.get('/api/wait-reply', async (req, res) => {
     }
 
     res.status(504).json({ ok: false, error: 'timeout waiting for reply' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e?.message || String(e) });
+  }
+});
+
+// POST /api/tts { text } → VOICEVOX → WAV audio
+app.post('/api/tts', async (req, res) => {
+  try {
+    const text = String(req.body?.text || '').trim();
+    if (!text) return res.status(400).json({ ok: false, error: 'text required' });
+
+    const speakerId = req.body?.speaker ?? VOICEVOX_SPEAKER;
+
+    // Step 1: audio_query
+    const queryRes = await fetch(
+      `${VOICEVOX_URL}/audio_query?text=${encodeURIComponent(text)}&speaker=${speakerId}`,
+      { method: 'POST' }
+    );
+    if (!queryRes.ok) throw new Error(`VOICEVOX audio_query failed: ${queryRes.status}`);
+    const query = await queryRes.json();
+
+    // Step 2: synthesis
+    const synthRes = await fetch(
+      `${VOICEVOX_URL}/synthesis?speaker=${speakerId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(query),
+      }
+    );
+    if (!synthRes.ok) throw new Error(`VOICEVOX synthesis failed: ${synthRes.status}`);
+
+    const wav = await synthRes.arrayBuffer();
+    res.set('Content-Type', 'audio/wav');
+    res.send(Buffer.from(wav));
   } catch (e) {
     res.status(500).json({ ok: false, error: e?.message || String(e) });
   }

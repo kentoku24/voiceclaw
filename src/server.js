@@ -22,7 +22,12 @@ function requireEnv(name, val) {
 async function discordSend(channelId, content) {
   // Prefer webhook for sending, so messages are not authored by a bot account.
   if (DISCORD_WEBHOOK_URL) {
-    const res = await fetch(DISCORD_WEBHOOK_URL, {
+    // Use wait=true to get the created message object (including id)
+    const url = DISCORD_WEBHOOK_URL.includes('?')
+      ? `${DISCORD_WEBHOOK_URL}&wait=true`
+      : `${DISCORD_WEBHOOK_URL}?wait=true`;
+
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
@@ -32,12 +37,9 @@ async function discordSend(channelId, content) {
       throw new Error(`Discord webhook send failed: ${res.status} ${res.statusText} ${text}`);
     }
 
-    // Webhook execute doesn't return message JSON unless ?wait=true
-    // We need a sentId to anchor reply waiting, so we fetch latest and take the newest.
-    const msgs = await discordGetLatest(channelId, 1);
-    const newest = msgs?.[0];
-    if (!newest?.id) throw new Error('Discord webhook send: could not fetch newest message id');
-    return newest;
+    const msg = await res.json().catch(() => null);
+    if (!msg?.id) throw new Error('Discord webhook send: missing message id');
+    return msg;
   }
 
   // Fallback: bot token send (not recommended; may be ignored by other bots)

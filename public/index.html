@@ -3,60 +3,83 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>voiceclaw MVP</title>
+  <title>voiceclaw</title>
   <style>
-    body { font-family: system-ui, -apple-system, sans-serif; margin: 24px; }
-    button { font-size: 18px; padding: 14px 18px; }
-    #status { margin-top: 16px; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 24px; background: #f5f5f5; }
+    h1 { margin-bottom: 8px; }
+    #btn {
+      font-size: 22px; padding: 20px 36px;
+      border-radius: 50px; border: none; cursor: pointer;
+      background: #4caf50; color: white;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      transition: background 0.15s, transform 0.1s;
+      user-select: none;
+    }
+    #btn.listening { background: #f44336; transform: scale(1.05); }
+    #btn.busy { background: #9e9e9e; }
+    #status {
+      margin-top: 20px; white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 14px; color: #333;
+    }
+    #reply-box {
+      margin-top: 16px; padding: 14px 18px;
+      background: white; border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      font-size: 16px; line-height: 1.6;
+      display: none;
+    }
   </style>
 </head>
 <body>
-  <h1>voiceclaw MVP</h1>
-  <button id="ptt">押して話す（離すと送信）</button>
+  <h1>🦞 voiceclaw</h1>
+  <button id="btn">押して話す</button>
   <div id="status">status: idle</div>
+  <div id="reply-box"></div>
 
 <script>
 (function(){
   const statusEl = document.getElementById('status');
-  const btn = document.getElementById('ptt');
+  const replyBox = document.getElementById('reply-box');
+  const btn = document.getElementById('btn');
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const synth = window.speechSynthesis;
 
   if (!SpeechRecognition) {
-    statusEl.textContent = 'status: Web Speech API (SpeechRecognition) が使えません。Chromeで開いてください。';
+    statusEl.textContent = 'status: SpeechRecognitionが使えません。Chromeで開いてください。';
     btn.disabled = true;
     return;
   }
 
-  function setStatus(s){ statusEl.textContent = 'status: ' + s; }
-
-  const SENT_PREFIX = 'voiceclaw: ';
-
-  async function apiSend(text) {
-    const res = await fetch('/api/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, prefix: SENT_PREFIX })
-    });
-    const data = await res.json().catch(()=>null);
-    if (!res.ok || !data?.ok) throw new Error(data?.error || `send failed: ${res.status}`);
-    return { sentId: data.sentId, sentAuthorId: data.sentAuthorId };
+  function setStatus(s) { statusEl.textContent = 'status: ' + s; }
+  function setReply(s) {
+    replyBox.style.display = s ? 'block' : 'none';
+    replyBox.textContent = s;
   }
 
-  async function apiWaitReply(afterId, excludeAuthorId) {
-    const qs = new URLSearchParams({ afterId });
-    if (excludeAuthorId) qs.set('excludeAuthorId', excludeAuthorId);
-    const res = await fetch(`/api/wait-reply?${qs.toString()}`);
-    const data = await res.json().catch(()=>null);
-    if (!res.ok || !data?.ok) throw new Error(data?.error || `wait failed: ${res.status}`);
-    return data.message;
+  async function apiChat(text) {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) throw new Error(data?.error || `chat failed: ${res.status}`);
+    return data.reply;
   }
 
   function speak(text) {
     return new Promise((resolve) => {
-      if (!text) return resolve();
-      const u = new SpeechSynthesisUtterance(text);
+      if (!text || !synth) return resolve();
+      // Strip markdown for cleaner TTS
+      const clean = text
+        .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/\*(.*?)\*/g, '$1')
+        .replace(/`[^`]+`/g, '')
+        .replace(/#+\s/g, '')
+        .trim();
+      const u = new SpeechSynthesisUtterance(clean);
       u.lang = 'ja-JP';
       u.rate = 1.05;
       u.onend = resolve;
@@ -69,8 +92,10 @@
   let recognition;
   let transcript = '';
   let isRecording = false;
+  let busy = false;
 
-  function startRec(){
+  function startRec() {
+    if (busy) return;
     transcript = '';
     recognition = new SpeechRecognition();
     recognition.lang = 'ja-JP';
@@ -87,8 +112,9 @@
     };
 
     recognition.onerror = (e) => {
-      setStatus('recognition error: ' + (e.error || 'unknown'));
+      setStatus('error: ' + (e.error || 'unknown'));
       isRecording = false;
+      setBusy(false);
     };
 
     recognition.onend = async () => {
@@ -97,42 +123,62 @@
 
       const text = transcript.trim();
       if (!text) {
-        setStatus('no speech detected');
+        setStatus('idle（音声なし）');
+        setBusy(false);
         return;
       }
 
       try {
-        setStatus('sending...');
-        const { sentId, sentAuthorId } = await apiSend(text);
-        setStatus('waiting reply...');
-        const reply = await apiWaitReply(sentId, sentAuthorId);
-        setStatus('reply: ' + reply.content);
-        await speak(reply.content);
+        setBusy(true);
+        setStatus('sending... 「' + text + '」');
+        setReply('');
+        const reply = await apiChat(text);
+        setReply(reply);
+        setStatus('speaking...');
+        await speak(reply);
         setStatus('idle');
       } catch (err) {
-        setStatus(String(err && err.message ? err.message : err));
+        setStatus('error: ' + (err?.message || String(err)));
+      } finally {
+        setBusy(false);
       }
     };
 
     try {
       isRecording = true;
+      btn.textContent = '🎙 話してください…';
+      btn.classList.add('listening');
+      btn.classList.remove('busy');
       setStatus('listening...');
       recognition.start();
     } catch (e) {
       isRecording = false;
-      setStatus('failed to start recognition: ' + e);
+      setBusy(false);
+      setStatus('failed to start: ' + e);
     }
   }
 
-  function stopRec(){
+  function stopRec() {
     if (!recognition) return;
     try { recognition.stop(); } catch {}
   }
 
-  btn.addEventListener('mousedown', (e) => { e.preventDefault(); startRec(); });
-  btn.addEventListener('mouseup', (e) => { e.preventDefault(); stopRec(); });
+  function setBusy(b) {
+    busy = b;
+    if (b) {
+      btn.textContent = '処理中...';
+      btn.classList.add('busy');
+      btn.classList.remove('listening');
+    } else {
+      btn.textContent = '押して話す';
+      btn.classList.remove('busy', 'listening');
+    }
+  }
+
+  btn.addEventListener('mousedown',  (e) => { e.preventDefault(); startRec(); });
+  btn.addEventListener('mouseup',    (e) => { e.preventDefault(); stopRec(); });
   btn.addEventListener('touchstart', (e) => { e.preventDefault(); startRec(); }, {passive:false});
-  btn.addEventListener('touchend', (e) => { e.preventDefault(); stopRec(); }, {passive:false});
+  btn.addEventListener('touchend',   (e) => { e.preventDefault(); stopRec(); }, {passive:false});
 })();
 </script>
 </body>

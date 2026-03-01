@@ -13,6 +13,8 @@ const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const CHAPPY_MENTION = process.env.CHAPPY_MENTION; // e.g. <@1467185317433049244>
 const CHAPPY_AUTHOR_ID = process.env.CHAPPY_AUTHOR_ID; // e.g. 1467185317433049244
+const OPENCLAW_GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL || 'http://127.0.0.1:18789';
+const OPENCLAW_GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN;
 
 function requireEnv(name, val) {
   if (!val) throw new Error(`Missing env: ${name}`);
@@ -161,6 +163,44 @@ app.get('/api/wait-reply', async (req, res) => {
     }
 
     res.status(504).json({ ok: false, error: 'timeout waiting for reply' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e?.message || String(e) });
+  }
+});
+
+// POST /api/chat { text } → OpenClaw Gateway → { reply }
+app.post('/api/chat', async (req, res) => {
+  try {
+    const text = String(req.body?.text || '').trim();
+    if (!text) return res.status(400).json({ ok: false, error: 'text required' });
+
+    if (!OPENCLAW_GATEWAY_TOKEN) {
+      return res.status(500).json({ ok: false, error: 'OPENCLAW_GATEWAY_TOKEN not set' });
+    }
+
+    const response = await fetch(`${OPENCLAW_GATEWAY_URL}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openclaw:main',
+        user: 'voiceclaw',  // stable session key (persistent across requests)
+        messages: [{ role: 'user', content: text }],
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      throw new Error(`OpenClaw API error: ${response.status} ${errText}`);
+    }
+
+    const data = await response.json();
+    const reply = data?.choices?.[0]?.message?.content;
+    if (!reply) throw new Error('No reply from OpenClaw');
+
+    res.json({ ok: true, reply });
   } catch (e) {
     res.status(500).json({ ok: false, error: e?.message || String(e) });
   }

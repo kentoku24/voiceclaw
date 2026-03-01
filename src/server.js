@@ -74,13 +74,14 @@ app.post('/api/send', async (req, res) => {
     const prefix = req.body?.prefix ? String(req.body.prefix) : '';
     const sent = await discordSend(channelId, prefix + text);
 
-    res.json({ ok: true, sentId: sent.id });
+    const sentAuthorId = sent?.author?.id;
+    res.json({ ok: true, sentId: sent.id, sentAuthorId });
   } catch (e) {
     res.status(500).json({ ok: false, error: e?.message || String(e) });
   }
 });
 
-// GET /api/wait-reply?afterId=...&timeoutMs=45000&skipPrefix=...
+// GET /api/wait-reply?afterId=...&timeoutMs=45000&excludeAuthorId=...
 app.get('/api/wait-reply', async (req, res) => {
   try {
     const channelId = req.query.channelId || DISCORD_CHANNEL_ID;
@@ -89,7 +90,7 @@ app.get('/api/wait-reply', async (req, res) => {
     const afterId = String(req.query.afterId || '').trim();
     if (!afterId) return res.status(400).json({ ok: false, error: 'afterId required' });
 
-    const skipPrefix = String(req.query.skipPrefix || '').trim();
+    const excludeAuthorId = String(req.query.excludeAuthorId || '').trim();
 
     const timeoutMs = req.query.timeoutMs ? Number(req.query.timeoutMs) : 45000;
     const start = Date.now();
@@ -105,9 +106,8 @@ app.get('/api/wait-reply', async (req, res) => {
       });
 
       const candidate = newer.find((m) => {
-        const c = m?.content;
-        if (!c) return false;
-        if (skipPrefix && c.startsWith(skipPrefix)) return false;
+        if (!m?.content) return false;
+        if (excludeAuthorId && m?.author?.id === excludeAuthorId) return false;
         return true;
       });
 

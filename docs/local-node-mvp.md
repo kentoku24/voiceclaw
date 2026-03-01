@@ -30,9 +30,11 @@ cp .env.example .env
 npm run dev
 ```
 
+※ `PORT=8787` は他のサービスと被って 404 になることがあるため、まずは 8788 を推奨。
+
 4. ブラウザで開く
 
-- http://localhost:8787/
+- http://localhost:8788/ （デフォルト）
 
 ## 使い方
 

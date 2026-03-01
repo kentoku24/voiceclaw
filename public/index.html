@@ -41,7 +41,7 @@
   <h1>🦞 voiceclaw</h1>
   <div class="phase-label" id="phase-label">停止中</div><br>
   <button id="btn">開始</button>
-  <div id="status">「ありすちゃん」と呼びかけてください</div>
+  <div id="status">「アリスちゃん」と呼びかけてください</div>
   <div id="reply-box"></div>
 
 <script>
@@ -60,7 +60,15 @@
     return;
   }
 
-  const WAKE_WORD = 'ありすちゃん';
+  const WAKE_WORDS = ['ありすちゃん', 'アリスちゃん', 'アリスチャン', 'ありすチャン'];
+
+  function findWakeWord(text) {
+    for (const w of WAKE_WORDS) {
+      const idx = text.indexOf(w);
+      if (idx !== -1) return { idx, len: w.length };
+    }
+    return null;
+  }
 
   // ---- state ----
   // 'idle' | 'watching' | 'triggered' | 'busy'
@@ -142,7 +150,7 @@
       awaitingCommand = false;
       if (phase !== 'idle') {
         setPhase('watching');
-        setStatus('「' + WAKE_WORD + '」と呼びかけてください');
+        setStatus('「アリスちゃん」と呼びかけてください');
       }
     }
   }
@@ -156,36 +164,46 @@
       const text    = result[0].transcript.trim();
       const isFinal = result.isFinal;
 
-      // Check if wake word present
-      const wakeIdx = text.indexOf(WAKE_WORD);
-      const hasWake = wakeIdx !== -1;
+      const wakeMatch = findWakeWord(text);
+      const hasWake = !!wakeMatch;
 
-      if (phase === 'watching') {
+      if (awaitingCommand) {
+        // Wake word already detected — waiting for command
         if (hasWake) {
-          // Extract command part: text after wake word
-          const afterWake = text.slice(wakeIdx + WAKE_WORD.length).replace(/^[、。,.\s]+/, '').trim();
-
+          // Same utterance still contains wake word — extract what's after
+          const afterWake = text.slice(wakeMatch.idx + wakeMatch.len).replace(/^[、。,.\s]+/, '').trim();
           if (afterWake && isFinal) {
-            // Wake word + command in same utterance → send immediately
+            setStatus('コマンド: 「' + afterWake + '」');
+            handleCommand(afterWake);
+            return;
+          }
+          setStatus('コマンドを話してください... 👂 ' + text);
+        } else if (isFinal && text) {
+          // Separate utterance after wake word = the command
+          setStatus('コマンド: 「' + text + '」');
+          handleCommand(text);
+          return;
+        } else {
+          setStatus('コマンドを話してください... 👂 ' + text);
+        }
+      } else if (phase === 'watching') {
+        if (hasWake) {
+          const afterWake = text.slice(wakeMatch.idx + wakeMatch.len).replace(/^[、。,.\s]+/, '').trim();
+          if (afterWake && isFinal) {
+            // Wake word + command in one utterance
             setPhase('triggered');
             setStatus('コマンド: 「' + afterWake + '」');
             handleCommand(afterWake);
             return;
           } else {
-            // Wake word detected, wait for next final as the command
+            // Wake word only — wait for next utterance
             awaitingCommand = true;
             setPhase('triggered');
             setStatus('コマンドを話してください...');
           }
-        } else if (awaitingCommand && isFinal && text) {
-          // Next final after wake word = the command
-          setStatus('コマンド: 「' + text + '」');
-          handleCommand(text);
-          return;
-        } else if (!awaitingCommand) {
-          // Not triggered yet, just show interim
-          if (!isFinal) setStatus('👂 ' + text);
-          else setStatus('「' + WAKE_WORD + '」と呼びかけてください');
+        } else {
+          // Show what's being heard
+          setStatus('👂 ' + text + (isFinal ? ' [確定]' : ''));
         }
       }
     }
@@ -219,7 +237,7 @@
       recognition.start();
       setPhase('watching');
       awaitingCommand = false;
-      setStatus('「' + WAKE_WORD + '」と呼びかけてください');
+      setStatus('「アリスちゃん」と呼びかけてください');
     } catch (e) {
       setStatus('開始失敗: ' + e);
       recognition = null;

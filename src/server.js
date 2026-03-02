@@ -208,17 +208,19 @@ app.post('/api/tts', async (req, res) => {
 // POST /api/chat { text } → OpenClaw Gateway → { reply }
 app.post('/api/chat', async (req, res) => {
   try {
-    const text = String(req.body?.text || '').trim();
-    if (!text) return res.status(400).json({ ok: false, error: 'text required' });
-
     if (!OPENCLAW_GATEWAY_TOKEN) {
       return res.status(500).json({ ok: false, error: 'OPENCLAW_GATEWAY_TOKEN not set' });
     }
 
-    // Accept either { text } for single turn, or { messages } for full history
-    const messages = req.body?.messages
-      ? req.body.messages
-      : [{ role: 'user', content: text }];
+    // Accept { messages } (full history) or { text } (single turn)
+    let messages;
+    if (req.body?.messages?.length) {
+      messages = req.body.messages;
+    } else {
+      const text = String(req.body?.text || '').trim();
+      if (!text) return res.status(400).json({ ok: false, error: 'text or messages required' });
+      messages = [{ role: 'user', content: text }];
+    }
 
     const response = await fetch(`${OPENCLAW_GATEWAY_URL}/v1/chat/completions`, {
       method: 'POST',

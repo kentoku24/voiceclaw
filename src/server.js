@@ -205,6 +205,102 @@ app.post('/api/tts', async (req, res) => {
   }
 });
 
+// POST /api/chat-stream { messages } → sentence-level SSE
+// Each SSE event: data: {"sentence":"...", "done":false} or {"done":true,"fullText":"..."}
+app.post('/api/chat-stream', async (req, res) => {
+  if (!OPENCLAW_GATEWAY_TOKEN) {
+    return res.status(500).json({ ok: false, error: 'OPENCLAW_GATEWAY_TOKEN not set' });
+  }
+
+  let messages;
+  if (req.body?.messages?.length) {
+    messages = req.body.messages;
+  } else {
+    const text = String(req.body?.text || '').trim();
+    if (!text) return res.status(400).json({ ok: false, error: 'text or messages required' });
+    messages = [{ role: 'user', content: text }];
+  }
+
+  // SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sendEvent = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+
+  try {
+    const upstream = await fetch(`${OPENCLAW_GATEWAY_URL}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model: 'openclaw:main', user: 'voiceclaw', messages, stream: true }),
+    });
+
+    if (!upstream.ok) {
+      sendEvent({ error: `OpenClaw error: ${upstream.status}` });
+      return res.end();
+    }
+
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    let lineBuffer = '';
+    let textBuf = '';   // accumulates current incomplete sentence
+    let fullText = '';
+    const SENT_RE = /[。！？!?]/;
+
+    const flushSentence = (force = false) => {
+      let idx;
+      while ((idx = textBuf.search(SENT_RE)) !== -1) {
+        const sentence = textBuf.slice(0, idx + 1).trim();
+        textBuf = textBuf.slice(idx + 1).trimStart();
+        if (sentence) sendEvent({ sentence, done: false });
+      }
+      // On force (stream end), flush remainder
+      if (force && textBuf.trim()) {
+        sendEvent({ sentence: textBuf.trim(), done: false });
+        textBuf = '';
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      lineBuffer += decoder.decode(value, { stream: true });
+      const lines = lineBuffer.split('\n');
+      lineBuffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        if (raw === '[DONE]') {
+          flushSentence(true);
+          sendEvent({ done: true, fullText });
+          return res.end();
+        }
+        try {
+          const parsed = JSON.parse(raw);
+          const delta = parsed.choices?.[0]?.delta?.content ?? '';
+          if (delta) {
+            textBuf += delta;
+            fullText += delta;
+            flushSentence();
+          }
+        } catch {}
+      }
+    }
+
+    flushSentence(true);
+    sendEvent({ done: true, fullText });
+    res.end();
+  } catch (e) {
+    sendEvent({ error: e?.message || String(e) });
+    res.end();
+  }
+});
+
 // POST /api/chat { text } → OpenClaw Gateway → { reply }
 app.post('/api/chat', async (req, res) => {
   try {

@@ -202,30 +202,29 @@
       .trim();
   }
 
-  function speak(text) {
-    return new Promise(async (resolve) => {
-      if (!text) return resolve();
-      const clean = cleanForTTS(text);
-      if (!clean) return resolve();
-      try {
-        const res = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: clean }),
-        });
-        if (!res.ok) throw new Error('tts HTTP ' + res.status);
-        const arrayBuf = await res.arrayBuffer();
-        const ctx = getAudioCtx();
-        const audioBuf = await ctx.decodeAudioData(arrayBuf);
-        const source = ctx.createBufferSource();
-        source.buffer = audioBuf;
-        source.connect(ctx.destination);
-        source.onended = resolve;
-        source.start(0);
-      } catch (e) {
-        console.warn('[tts] error:', e);
-        resolve();
-      }
+  async function fetchAudioBuffer(text) {
+    const clean = cleanForTTS(text);
+    if (!clean) return null;
+    const res = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: clean }),
+    });
+    if (!res.ok) return null;
+    const arrayBuf = await res.arrayBuffer();
+    const ctx = getAudioCtx();
+    return ctx.decodeAudioData(arrayBuf);
+  }
+
+  function playAudioBuffer(audioBuf) {
+    return new Promise((resolve) => {
+      if (!audioBuf) return resolve();
+      const ctx = getAudioCtx();
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuf;
+      source.connect(ctx.destination);
+      source.onended = resolve;
+      source.start(0);
     });
   }
 
@@ -245,15 +244,25 @@
 
   function setStatus(s) { statusLine.textContent = s; }
 
-  // ---- command handler ----
+  // ---- split text into first sentence and rest ----
+  function splitFirstSentence(text) {
+    const match = text.match(/^(.*?[。！？!?\n])/);
+    if (match) {
+      const first = match[1].trim();
+      const rest = text.slice(match[1].length).trim();
+      return { first, rest };
+    }
+    return { first: text, rest: '' };
+  }
+
+  // ---- command handler (first-sentence early TTS) ----
   async function handleCommand(commandText) {
     setPhase('busy');
     setStatus('送信中...');
+    messages.push({ role: 'user', content: commandText });
     addMessage('user', commandText);
+
     try {
-      // messages already has user turn from addMessage, so pass current messages
-      // but apiChat also pushes to messages — avoid double push
-      // So we send messages manually here:
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -261,11 +270,31 @@
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) throw new Error(data?.error || 'chat failed');
+
       const reply = data.reply;
       messages.push({ role: 'assistant', content: reply });
       addMessage('assistant', reply);
+
+      // Split into first sentence and rest
+      const { first, rest } = splitFirstSentence(reply);
+
+      // Start fetching TTS for first sentence immediately
       setStatus('読み上げ中...');
-      await speak(reply);
+      const firstBufPromise = fetchAudioBuffer(first);
+
+      // If there's more text, start fetching that too (parallel)
+      const restBufPromise = rest ? fetchAudioBuffer(rest) : null;
+
+      // Play first sentence
+      const firstBuf = await firstBufPromise;
+      await playAudioBuffer(firstBuf);
+
+      // Play rest if any
+      if (restBufPromise) {
+        const restBuf = await restBufPromise;
+        await playAudioBuffer(restBuf);
+      }
+
     } catch (err) {
       setStatus('エラー: ' + (err?.message || String(err)));
     } finally {

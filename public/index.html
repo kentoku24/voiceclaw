@@ -111,6 +111,11 @@
       color: #4caf50;
     }
     #btn-action:hover { background: #2a4a2a; }
+    #btn-action.active {
+      background: #3a2a00;
+      color: #ff9800;
+    }
+    #btn-action.active:hover { background: #4a3a10; }
     #btn-action.skip {
       background: #1a2a3a;
       color: #64b5f6;
@@ -274,18 +279,19 @@
   let phase = 'idle';
   let recognition = null;
   let awaitingCommand = false;
+  let directMode = false; // true = always listen (no wake word needed)
 
   function setPhase(p) {
     phase = p;
     const labels = { 
       idle: '停止中', 
-      watching: '🟢 待受中', 
+      watching: directMode ? '🟠 認識中' : '🟢 待受中', 
       triggered: '🟠 入力中', 
       busy: '🔵 処理中',
       playing: '🟣 再生中'
     };
     badge.textContent = labels[p] || p;
-    badge.className = p;
+    badge.className = p === 'watching' && directMode ? 'triggered' : p;
     
     // Update button visibility and labels
     if (p === 'idle') {
@@ -299,10 +305,10 @@
       
       if (p === 'playing') {
         btnAction.textContent = 'スキップ';
-        btnAction.classList.add('skip');
+        btnAction.className = 'ctrl-btn skip';
       } else {
-        btnAction.textContent = '認識';
-        btnAction.classList.remove('skip');
+        btnAction.textContent = directMode ? '🟠 認識' : '🟢 待受';
+        btnAction.className = directMode ? 'ctrl-btn active' : 'ctrl-btn';
       }
     }
   }
@@ -419,7 +425,7 @@
       skipRequested = false;
       if (phase !== 'idle') {
         setPhase('watching');
-        setStatus(wakeWordLabel() + 'と呼びかけてください');
+        setStatus(directMode ? '話しかけてください...' : wakeWordLabel() + 'と呼びかけてください');
       }
     }
   }
@@ -433,6 +439,16 @@
       const isFinal = result.isFinal;
       const wakeMatch = findWakeWord(text);
       const hasWake = !!wakeMatch;
+
+      // Direct mode: every final utterance is a command
+      if (directMode && phase === 'watching') {
+        if (isFinal && text) {
+          handleCommand(text); return;
+        } else {
+          setStatus('👂 ' + text);
+        }
+        continue;
+      }
 
       if (awaitingCommand) {
         if (hasWake) {
@@ -479,7 +495,7 @@
       recognition.start();
       setPhase('watching');
       awaitingCommand = false;
-      setStatus(wakeWordLabel() + 'と呼びかけてください');
+      setStatus(directMode ? '話しかけてください...' : wakeWordLabel() + 'と呼びかけてください');
     } catch (e) {
       setStatus('開始失敗: ' + e);
       recognition = null;
@@ -494,11 +510,12 @@
     setStatus('停止しました');
   }
   
-  function triggerRecognition() {
-    if (phase === 'watching') {
-      awaitingCommand = true;
-      setPhase('triggered');
-      setStatus('コマンドを話してください...');
+  function toggleMode() {
+    directMode = !directMode;
+    if (phase === 'watching' || phase === 'triggered') {
+      awaitingCommand = false;
+      setPhase('watching');
+      setStatus(directMode ? '話しかけてください...' : wakeWordLabel() + 'と呼びかけてください');
     }
   }
 
@@ -516,8 +533,8 @@
   btnAction.addEventListener('click', () => {
     if (phase === 'playing') {
       skipPlayback();
-    } else if (phase === 'watching') {
-      triggerRecognition();
+    } else {
+      toggleMode();
     }
   });
 

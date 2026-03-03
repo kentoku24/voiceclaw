@@ -1,6 +1,6 @@
-# voiceclaw アーキテクチャ（現状）
+# voiceclaw アーキテクチャ
 
-## ラダーチャート: ウェイクワード → 回答再生
+## シーケンス図: ウェイクワード → 回答再生
 
 ```mermaid
 sequenceDiagram
@@ -9,13 +9,13 @@ sequenceDiagram
     participant G as 🤖 OpenClaw GW<br/>:18789
     participant T as 🔊 VOICEVOX<br/>:50021
 
-    Note over B: ① STT待受 (Web Speech API, ja-JP)
-    Note over B: ② ウェイクワード「アリス」検出
+    Note over B: ① STT待受 (Web Speech API)
+    Note over B: ② ウェイクワード検出（設定可能）
     Note over B: コマンド音声入力 → isFinal=true
 
     B->>V: ③ POST /api/chat-stream<br/>{messages: [...history]}
 
-    V->>G: ④ POST /v1/chat/completions<br/>stream:true + 🔑 Bearer TOKEN
+    V->>G: ④ POST /v1/chat/completions<br/>stream:true, Bearer token(自動検出)
 
     loop トークン単位
         G-->>V: ⑤ SSE delta chunk
@@ -50,10 +50,28 @@ sequenceDiagram
 | OpenClaw Gateway | :18789 | LLM呼び出し + セッション管理 |
 | VOICEVOX | :50021 | 日本語音声合成 |
 
+## 設定の取得フロー
+
+```
+起動時:
+  環境変数あり？ → 使う
+  なければ ~/.openclaw/openclaw.json → gateway port + token 自動検出
+  なければデフォルト値
+
+フロントエンド:
+  GET /api/config → ウェイクワード, STT言語, speaker ID を取得
+```
+
+## API一覧
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/health` | ヘルスチェック |
+| GET | `/api/config` | クライアント設定（ウェイクワード, STT言語） |
+| POST | `/api/chat-stream` | ストリーミングLLM → 文単位SSE |
+| POST | `/api/chat` | 非ストリーミングLLM（フォールバック） |
+| POST | `/api/tts` | テキスト → VOICEVOX → WAV |
+
 ## 秘密情報
 
-| 変数 | 必要性 | 備考 |
-|---|---|---|
-| OPENCLAW_GATEWAY_TOKEN | **現在必要** | → openclaw.json自動読み取りで除去予定 |
-| DISCORD_BOT_TOKEN | 不要（レガシー） | Discord経由は廃止済み |
-| DISCORD_WEBHOOK_URL | 不要（レガシー） | 同上 |
+**なし。** Gateway tokenは `~/.openclaw/openclaw.json` から自動検出。

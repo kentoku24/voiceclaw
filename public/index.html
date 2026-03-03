@@ -35,6 +35,7 @@
     #phase-badge.watching  { background: #1a3a1a; color: #4caf50; }
     #phase-badge.triggered { background: #3a2a00; color: #ff9800; }
     #phase-badge.busy      { background: #0a1a3a; color: #64b5f6; }
+    #phase-badge.playing   { background: #2a1a3a; color: #ba68c8; }
 
     #history {
       flex: 1;
@@ -81,7 +82,8 @@
       min-height: 16px;
     }
     #controls { display: flex; gap: 10px; }
-    #btn {
+    
+    .ctrl-btn {
       flex: 1;
       font-size: 16px;
       padding: 14px;
@@ -89,13 +91,34 @@
       border: none;
       cursor: pointer;
       font-weight: 600;
-      transition: background 0.2s;
-      background: #2a2a2a;
-      color: #888;
+      transition: background 0.2s, opacity 0.2s;
     }
-    #btn.watching  { background: #1a3a1a; color: #4caf50; }
-    #btn.triggered { background: #3a2a00; color: #ff9800; }
-    #btn.busy      { background: #0a1a3a; color: #64b5f6; }
+    
+    #btn-start {
+      background: #1a3a1a;
+      color: #4caf50;
+    }
+    #btn-start:hover { background: #2a4a2a; }
+    
+    #btn-stop {
+      background: #3a1a1a;
+      color: #f44336;
+    }
+    #btn-stop:hover { background: #4a2a2a; }
+    
+    #btn-action {
+      background: #1a3a1a;
+      color: #4caf50;
+    }
+    #btn-action:hover { background: #2a4a2a; }
+    #btn-action.skip {
+      background: #1a2a3a;
+      color: #64b5f6;
+    }
+    #btn-action.skip:hover { background: #2a3a4a; }
+    
+    .hidden { display: none !important; }
+    
     #clear-btn {
       padding: 14px 16px;
       border-radius: 12px;
@@ -119,7 +142,9 @@
   <footer>
     <div id="status-line">「開始」を押してウェイクワードで呼びかけてください</div>
     <div id="controls">
-      <button id="btn">開始</button>
+      <button id="btn-start" class="ctrl-btn">開始</button>
+      <button id="btn-stop" class="ctrl-btn hidden">停止</button>
+      <button id="btn-action" class="ctrl-btn hidden">認識</button>
       <button id="clear-btn" title="履歴をクリア">🗑</button>
     </div>
   </footer>
@@ -129,18 +154,23 @@
   const historyEl  = document.getElementById('history');
   const statusLine = document.getElementById('status-line');
   const badge      = document.getElementById('phase-badge');
-  const btn        = document.getElementById('btn');
+  const btnStart   = document.getElementById('btn-start');
+  const btnStop    = document.getElementById('btn-stop');
+  const btnAction  = document.getElementById('btn-action');
   const clearBtn   = document.getElementById('clear-btn');
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     statusLine.textContent = 'SpeechRecognitionが使えません。Chromeで開いてください。';
-    btn.disabled = true;
+    btnStart.disabled = true;
     return;
   }
 
   // ---- Web Audio ----
   let audioCtx = null;
+  let currentSource = null; // Track current audio source for skip
+  let skipRequested = false;
+  
   function getAudioCtx() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -192,24 +222,6 @@
     historyEl.innerHTML = '';
   }
 
-  // ---- API ----
-  async function apiChat(userText) {
-    // Add user turn to history
-    messages.push({ role: 'user', content: userText });
-
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages }),
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.ok) throw new Error(data?.error || `chat failed: ${res.status}`);
-
-    // Add assistant reply to history
-    messages.push({ role: 'assistant', content: data.reply });
-    return data.reply;
-  }
-
   // ---- TTS ----
   function cleanForTTS(text) {
     return text
@@ -236,14 +248,26 @@
 
   function playAudioBuffer(audioBuf) {
     return new Promise((resolve) => {
-      if (!audioBuf) return resolve();
+      if (!audioBuf || skipRequested) return resolve();
       const ctx = getAudioCtx();
       const source = ctx.createBufferSource();
       source.buffer = audioBuf;
       source.connect(ctx.destination);
-      source.onended = resolve;
+      source.onended = () => {
+        currentSource = null;
+        resolve();
+      };
+      currentSource = source;
       source.start(0);
     });
+  }
+  
+  function skipPlayback() {
+    skipRequested = true;
+    if (currentSource) {
+      try { currentSource.stop(); } catch {}
+      currentSource = null;
+    }
   }
 
   // ---- phase ----
@@ -253,11 +277,34 @@
 
   function setPhase(p) {
     phase = p;
-    const labels = { idle: '停止中', watching: '🟢 待受中', triggered: '🟠 入力中', busy: '🔵 処理中' };
+    const labels = { 
+      idle: '停止中', 
+      watching: '🟢 待受中', 
+      triggered: '🟠 入力中', 
+      busy: '🔵 処理中',
+      playing: '🟣 再生中'
+    };
     badge.textContent = labels[p] || p;
     badge.className = p;
-    btn.className = p;
-    btn.textContent = p === 'idle' ? '開始' : '停止';
+    
+    // Update button visibility and labels
+    if (p === 'idle') {
+      btnStart.classList.remove('hidden');
+      btnStop.classList.add('hidden');
+      btnAction.classList.add('hidden');
+    } else {
+      btnStart.classList.add('hidden');
+      btnStop.classList.remove('hidden');
+      btnAction.classList.remove('hidden');
+      
+      if (p === 'playing') {
+        btnAction.textContent = 'スキップ';
+        btnAction.classList.add('skip');
+      } else {
+        btnAction.textContent = '認識';
+        btnAction.classList.remove('skip');
+      }
+    }
   }
 
   function setStatus(s) { statusLine.textContent = s; }
@@ -278,6 +325,7 @@
     const ttsQueue = [];
     let fullText = '';
     let sentenceCount = 0;
+    skipRequested = false;
 
     function enqueueTTS(sentence) {
       sentenceCount++;
@@ -290,9 +338,11 @@
     // Playback loop runs concurrently — plays buffers in order as they resolve
     async function playbackLoop() {
       let i = 0;
-      while (true) {
+      while (!skipRequested) {
         if (i < ttsQueue.length) {
+          setPhase('playing');
           const buf = await ttsQueue[i];
+          if (skipRequested) break;
           setStatus(`読み上げ中... (文${i + 1}/${ttsQueue.length})`);
           await playAudioBuffer(buf);
           i++;
@@ -366,6 +416,7 @@
       setStatus('エラー: ' + (err?.message || String(err)));
     } finally {
       awaitingCommand = false;
+      skipRequested = false;
       if (phase !== 'idle') {
         setPhase('watching');
         setStatus(wakeWordLabel() + 'と呼びかけてください');
@@ -375,7 +426,7 @@
 
   // ---- recognition ----
   function onResult(event) {
-    if (phase === 'busy') return;
+    if (phase === 'busy' || phase === 'playing') return;
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const result  = event.results[i];
       const text    = result[0].transcript.trim();
@@ -420,7 +471,7 @@
     recognition.onresult = onResult;
     recognition.onerror = (e) => { if (e.error !== 'no-speech') setStatus('認識エラー: ' + e.error); };
     recognition.onend = () => {
-      if (phase !== 'idle' && phase !== 'busy') {
+      if (phase !== 'idle' && phase !== 'busy' && phase !== 'playing') {
         try { recognition.start(); } catch {}
       }
     };
@@ -436,19 +487,37 @@
   }
 
   function stopWatching() {
+    skipPlayback();
     setPhase('idle');
     awaitingCommand = false;
     if (recognition) { try { recognition.stop(); } catch {} recognition = null; }
     setStatus('停止しました');
   }
+  
+  function triggerRecognition() {
+    if (phase === 'watching') {
+      awaitingCommand = true;
+      setPhase('triggered');
+      setStatus('コマンドを話してください...');
+    }
+  }
 
-  btn.addEventListener('click', async () => {
+  // ---- Event handlers ----
+  btnStart.addEventListener('click', async () => {
     getAudioCtx();
-    if (phase === 'idle') {
-      await loadConfig();
-      startWatching();
-    } else {
-      stopWatching();
+    await loadConfig();
+    startWatching();
+  });
+  
+  btnStop.addEventListener('click', () => {
+    stopWatching();
+  });
+  
+  btnAction.addEventListener('click', () => {
+    if (phase === 'playing') {
+      skipPlayback();
+    } else if (phase === 'watching') {
+      triggerRecognition();
     }
   });
 

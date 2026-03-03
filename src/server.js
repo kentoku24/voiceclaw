@@ -40,6 +40,9 @@ const OPENCLAW_GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL || openclawAuto?.u
 const OPENCLAW_GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || openclawAuto?.token || '';
 const VOICEVOX_URL = process.env.VOICEVOX_URL || 'http://127.0.0.1:50021';
 const VOICEVOX_SPEAKER = process.env.VOICEVOX_SPEAKER ? Number(process.env.VOICEVOX_SPEAKER) : 1;
+const OPENCLAW_MODEL = process.env.OPENCLAW_MODEL || 'openclaw';
+const WAKE_WORDS = (process.env.WAKE_WORDS || 'アリスちゃん,ありすちゃん,アリスチャン,アリス,ありす').split(',').map(w => w.trim()).filter(Boolean);
+const STT_LANG = process.env.STT_LANG || 'ja-JP';
 
 if (!OPENCLAW_GATEWAY_TOKEN) {
   console.warn('[voiceclaw] ⚠ No OpenClaw gateway token found (env or ~/.openclaw/openclaw.json)');
@@ -62,6 +65,15 @@ app.use(express.static(publicDir));
 
 app.get('/health', (req, res) => {
   res.json({ ok: true });
+});
+
+// GET /api/config → client-safe settings
+app.get('/api/config', (req, res) => {
+  res.json({
+    wakeWords: WAKE_WORDS,
+    sttLang: STT_LANG,
+    voicevoxSpeaker: VOICEVOX_SPEAKER,
+  });
 });
 
 // POST /api/tts { text } → VOICEVOX → WAV audio
@@ -130,7 +142,7 @@ app.post('/api/chat-stream', async (req, res) => {
         'Authorization': `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ model: 'openclaw:main', user: 'voiceclaw', messages, stream: true }),
+      body: JSON.stringify({ model: OPENCLAW_MODEL, user: 'voiceclaw', messages, stream: true }),
     });
 
     if (!upstream.ok) {
@@ -219,7 +231,7 @@ app.post('/api/chat', async (req, res) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'openclaw:main',
+        model: OPENCLAW_MODEL,
         user: 'voiceclaw',  // stable session key
         messages,
       }),

@@ -1,81 +1,59 @@
-# voiceclaw アーキテクチャ案（コスト重視・日曜大工向け）
+# voiceclaw アーキテクチャ（現状）
 
-- 更新日: 2026-03-01
+## ラダーチャート: ウェイクワード → 回答再生
 
-## 目的（要件の背景）
+```mermaid
+sequenceDiagram
+    participant B as 🌐 Browser
+    participant V as 📡 voiceclaw server<br/>:8788
+    participant G as 🤖 OpenClaw GW<br/>:18789
+    participant T as 🔊 VOICEVOX<br/>:50021
 
-wakeword を置く理由は主に2つ。
+    Note over B: ① STT待受 (Web Speech API, ja-JP)
+    Note over B: ② ウェイクワード「アリス」検出
+    Note over B: コマンド音声入力 → isFinal=true
 
-1. **コスト最適化**
-   - 常時 GPT-5.3 相当（クラウドLLM）へ接続し続けるのは高コストになりがち。
-   - まずローカルで「呼びかけられた」時だけ後段（STT/LLM）を起動する。
+    B->>V: ③ POST /api/chat-stream<br/>{messages: [...history]}
 
-2. **会話の分離（人間同士 vs AI向け）**
-   - 人間同士の会話には反応せず、AIに依頼したい時だけ反応してほしい。
-   - wakeword は「意図のスイッチ」として機能する。
+    V->>G: ④ POST /v1/chat/completions<br/>stream:true + 🔑 Bearer TOKEN
 
-## 最小の推奨パイプライン（MVP）
+    loop トークン単位
+        G-->>V: ⑤ SSE delta chunk
+    end
 
+    Note over V: ⑥ 文境界検出<br/>textBuf蓄積 → 。！？!? で分割
+
+    loop 文ごとにパイプライン
+        V-->>B: ⑦ SSE {sentence:"こんにちは！"}
+
+        B->>V: ⑧ POST /api/tts {text}
+
+        V->>T: ⑨ POST /audio_query
+        T-->>V: query JSON
+        V->>T: POST /synthesis
+        T-->>V: WAV binary
+
+        V-->>B: ⑩ audio/wav
+
+        Note over B: ⑪ AudioContext再生<br/>(再生中に次文のTTSを先行fetch)
+    end
+
+    Note over B: ⑫ 全文再生完了 → ウェイクワード待受に戻る
 ```
-[常時] マイク入力
-  -> (A) Wakeword/VAD (ローカル)
-       -> 検出したら録音開始（または数秒バッファ+録音）
-  -> (B) STT（ローカルorクラウド）
-  -> (C) LLM（クラウド; ChatGPTサブスクで利用可能な範囲）
-  -> (D) OpenClaw ツール呼び出し/実行
-  -> (E) TTS（ローカルorクラウド）
-  -> スピーカー出力
-```
 
-- (A) は **常時稼働**だが軽量（ローカル）
-- (B)(C) は **wakeword検出後のみ**起動してコストを抑える
+## コンポーネント
 
-## Androidをどう使うか（安価/運用しやすさ順）
+| コンポーネント | ポート | 役割 |
+|---|---|---|
+| Browser | - | STT (Web Speech API) + TTS再生 (Web Audio) + UI |
+| voiceclaw server | :8788 | リレー + 文境界検出 + VOICEVOX proxy |
+| OpenClaw Gateway | :18789 | LLM呼び出し + セッション管理 |
+| VOICEVOX | :50021 | 日本語音声合成 |
 
-### 案1: Androidは「UI + マイク/スピーカー」まで全部担当（単体完結に近い）
+## 秘密情報
 
-- 目標: 24h入出力（マイク/スピーカー）を Android 1台で実現
-- 実装方針（現実的な順）:
-  - 1) Termux で常駐プロセスとして wakeword + 録音 + ネット送信
-  - 2) ネイティブAndroidアプリ化（バックグラウンド/省電力制限の壁があるので後回し）
-- Pros:
-  - ハードが少なくて安価・配線が楽
-- Cons / リスク:
-  - Androidの省電力制限で **24h常駐が不安定**になりやすい
-  - マイクの排他/オーディオフォーカス、Bluetooth等でハマりがち
-
-### 案2: AndroidはUI/入出力、ローカル処理は近くの常時稼働マシン（RPi/ミニPC）
-
-- 構成:
-  - Android: マイク/スピーカー + 画面UI（状態表示）
-  - RPi/ミニPC: wakeword(VAD)常時 + 録音/解析 + OpenClaw連携
-- Pros:
-  - 24h常時稼働は Linux の方が安定
-  - 依存解決（openWakeWord等）もしやすい
-- Cons:
-  - デバイスが増える（ただし中古/安価RPiなら許容範囲）
-
-### 案3: AndroidはUIだけ（マイク/スピーカーは別の常設端末）
-
-- Pros:
-  - Android特有の常駐問題を回避
-- Cons:
-  - 「Androidのマイクスピーカーで入出力」の要望には合いにくい
-
-## コストを抑えるための設計ポイント
-
-- **常時起動は wakeword + VAD まで**（軽量・ローカル）
-- wakeword後は
-  - 短い音声だけを録音→STT→LLM
-  - 無音検出（VAD）で録音終了してトークン/秒を抑える
-- 可能なら
-  - よくある定型操作はローカル意図分類/ルールで処理（LLM呼び出し回数を削減）
-
-## 次に決めたいこと（意思決定ポイント）
-
-1. **Android単体（案1）を本気で狙うか**
-   - 省電力制限を許容してでもデバイス最小を優先するか？
-2. **wakewordの実装候補**
-   - openWakeWord 系を中心に検証するか（Termux/arm64で依存が入るか）
-3. **STTをどこに置くか**
-   - ローカル（端末負荷↑/コスト↓） vs クラウド（実装↓/コスト↑）
+| 変数 | 必要性 | 備考 |
+|---|---|---|
+| OPENCLAW_GATEWAY_TOKEN | **現在必要** | → openclaw.json自動読み取りで除去予定 |
+| DISCORD_BOT_TOKEN | 不要（レガシー） | Discord経由は廃止済み |
+| DISCORD_WEBHOOK_URL | 不要（レガシー） | 同上 |

@@ -1,17 +1,51 @@
 import 'dotenv/config';
 import express from 'express';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// --- OpenClaw config auto-discovery ---
+function loadOpenClawConfig() {
+  // Search paths: ~/.openclaw/openclaw.json (Linux/macOS)
+  const candidates = [
+    path.join(os.homedir(), '.openclaw', 'openclaw.json'),
+  ];
+
+  for (const p of candidates) {
+    try {
+      const raw = fs.readFileSync(p, 'utf-8');
+      const cfg = JSON.parse(raw);
+      const port = cfg?.gateway?.port;
+      const token = cfg?.gateway?.auth?.token;
+      if (port && token) {
+        console.log(`[voiceclaw] OpenClaw config loaded from ${p}`);
+        return { url: `http://127.0.0.1:${port}`, token };
+      }
+    } catch {
+      // file not found or parse error — try next
+    }
+  }
+  return null;
+}
+
+const openclawAuto = loadOpenClawConfig();
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8788;
-const OPENCLAW_GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL || 'http://127.0.0.1:18789';
-const OPENCLAW_GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN;
+const OPENCLAW_GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL || openclawAuto?.url || 'http://127.0.0.1:18789';
+const OPENCLAW_GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || openclawAuto?.token || '';
 const VOICEVOX_URL = process.env.VOICEVOX_URL || 'http://127.0.0.1:50021';
 const VOICEVOX_SPEAKER = process.env.VOICEVOX_SPEAKER ? Number(process.env.VOICEVOX_SPEAKER) : 1;
+
+if (!OPENCLAW_GATEWAY_TOKEN) {
+  console.warn('[voiceclaw] ⚠ No OpenClaw gateway token found (env or ~/.openclaw/openclaw.json)');
+} else if (openclawAuto && !process.env.OPENCLAW_GATEWAY_TOKEN) {
+  console.log(`[voiceclaw] Using OpenClaw gateway at ${OPENCLAW_GATEWAY_URL} (auto-detected)`);
+}
 
 // Serve web UI
 const __filename = fileURLToPath(import.meta.url);

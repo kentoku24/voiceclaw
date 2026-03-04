@@ -49,6 +49,16 @@ All settings are optional. See [SKILL.md](SKILL.md) for the full configuration t
 WAKE_WORDS=Hey,Hello STT_LANG=en-US VOICEVOX_SPEAKER=3 npm start
 ```
 
+### What stays outside this repo
+
+voiceclaw itself has no secrets or environment-specific data checked in. Keep the following on your local machine, **not** in the repository:
+
+| Data | Where | Notes |
+|---|---|---|
+| OpenClaw gateway token | `.env` or `~/.openclaw/openclaw.json` | Auto-detected at startup; `.env` is gitignored |
+| Tailscale / HTTPS hostnames | Your reverse proxy config | Not part of voiceclaw |
+| Personal notes (IDs, endpoints, etc.) | `.local-notes.md` (gitignored) | Optional scratchpad for your setup |
+
 ## Architecture
 
 ```mermaid

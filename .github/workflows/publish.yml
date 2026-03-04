@@ -31,7 +31,7 @@ jobs:
           VERSION="${VERSION#v}"
 
           clawhub publish . \
-            --slug voiceclaw \
+            --slug voiceclaw-jp \
             --name "voiceclaw" \
             --version "$VERSION" \
             --changelog "Release $VERSION" \

@@ -1,5 +1,5 @@
 ---
-name: voiceclaw
+name: voiceclaw-jp
 description: Voice conversation interface for OpenClaw using wake word detection, streaming LLM responses, and text-to-speech. Use when a user wants to talk to their OpenClaw agent by voice, set up a voice assistant, or add speech input/output to OpenClaw. Supports configurable wake words, VOICEVOX TTS, and sentence-level streaming for low-latency responses.
 ---
 

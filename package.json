@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Local Node relay for voiceclaw MVP (web STT -> discord -> reply -> web TTS)",
+  "description": "Voice conversation interface for OpenClaw — wake word, streaming LLM, and VOICEVOX TTS",
   "scripts": {
     "dev": "node src/server.js",
     "start": "node src/server.js"
